@@ -2300,34 +2300,62 @@ pub(in super::super) fn match_subject_types(
     run: &super::super::infer::Run<'_, '_>,
 ) -> (HashMap<Span, TUnion>, Vec<Span>) {
     let (file, program) = (run.file, run.program);
-    struct Matches(Vec<(Span, usize, usize, usize)>, usize);
+    #[derive(Default)]
+    struct Matches {
+        found: Vec<(Span, usize, usize, (usize, usize))>,
+        depth: usize,
+        function: Option<u32>,
+        seen: HashMap<(Option<u32>, usize), usize>,
+    }
+    impl Matches {
+        fn enter_function(&mut self, span: Span) {
+            self.function.get_or_insert(span.start.offset);
+        }
+        fn leave_function(&mut self, span: Span) {
+            if self.function == Some(span.start.offset) {
+                self.function = None;
+            }
+        }
+    }
     impl<'ast, 'arena> MutWalker<'ast, 'arena, ()> for Matches {
+        fn walk_in_function(&mut self, f: &'ast Function<'arena>, (): &mut ()) {
+            self.enter_function(f.span());
+        }
+        fn walk_out_function(&mut self, f: &'ast Function<'arena>, (): &mut ()) {
+            self.leave_function(f.span());
+        }
+        fn walk_in_method(&mut self, m: &'ast Method<'arena>, (): &mut ()) {
+            self.enter_function(m.span());
+        }
+        fn walk_out_method(&mut self, m: &'ast Method<'arena>, (): &mut ()) {
+            self.leave_function(m.span());
+        }
         fn walk_in_match(&mut self, m: &'ast Match<'arena>, (): &mut ()) {
             if !m.arms.is_empty() {
                 let (start, end) = (
                     m.left_brace.end.offset as usize,
                     m.right_brace.start.offset as usize,
                 );
-                self.0.push((m.expression.span(), start, end, self.1));
+                let earlier = self.seen.entry((self.function, self.depth)).or_default();
+                self.found
+                    .push((m.expression.span(), start, end, (self.depth, *earlier)));
+                *earlier += 1;
             }
-            self.1 += 1;
+            self.depth += 1;
         }
         fn walk_out_match(&mut self, _: &'ast Match<'arena>, (): &mut ()) {
-            self.1 -= 1;
+            self.depth -= 1;
         }
     }
-    let mut matches = Matches(Vec::new(), 0);
+    let mut matches = Matches::default();
     matches.walk_program(program, &mut ());
     let mut types = HashMap::new();
     let mut unknown = Vec::new();
-    if matches.0.is_empty() {
-        return (types, unknown);
-    }
-    let deepest = matches.0.iter().map(|m| m.3).max().unwrap_or_default();
-    for depth in 0..=deepest {
+    let passes: BTreeSet<(usize, usize)> = matches.found.iter().map(|m| m.3).collect();
+    for pass in passes {
         let mut contents = file.contents.to_vec();
         let mut subjects = Vec::new();
-        for &(subject, s, e, _) in matches.0.iter().filter(|m| m.3 == depth) {
+        for &(subject, s, e, _) in matches.found.iter().filter(|m| m.3 == pass) {
             let mut arms = file.contents[s..e]
                 .iter()
                 .map(|b| if *b == b'\n' { b'\n' } else { b' ' })

@@ -54,3 +54,14 @@ function closedByCallee(string $path, callable $consume): void {
         if (is_resource($stream)) { fclose($stream); }
     }
 }
+
+function matchOnMatchResult(string $type, string $support): string {
+    $kind = match ($type) {
+        $support => 'support',
+        default => 'whole',
+    };
+    return match ($kind) {
+        'support' => 'Support',
+        default => 'Whole',
+    };
+}
