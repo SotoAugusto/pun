@@ -963,6 +963,7 @@ impl ExpressionHook for ModelAttributes {
         let name = String::from_utf8_lossy(property.value);
         let dollar = format!("${name}");
         let mut types = Vec::new();
+        let mut nullable_property = false;
         for atomic in object_type.types.iter() {
             let ty = match atomic {
                 TAtomic::Null if nullsafe => get_null(),
@@ -1033,9 +1034,10 @@ impl ExpressionHook for ModelAttributes {
                 }
                 _ => return Ok(()),
             };
+            nullable_property |= ty.is_nullable();
             types.push(ty);
         }
-        let ty = match types.len() {
+        let mut ty = match types.len() {
             0 => return Ok(()),
             1 => types.pop().unwrap_or_else(get_mixed),
             _ => TUnion::from_vec(
@@ -1045,6 +1047,11 @@ impl ExpressionHook for ModelAttributes {
                     .collect(),
             ),
         };
+        if !nullable_property
+            && ((nullsafe && object_type.has_null()) || object_type.has_nullsafe_null())
+        {
+            ty.set_nullsafe_null(true);
+        }
         context.set_expression_type(expr, ty);
         Ok(())
     }
