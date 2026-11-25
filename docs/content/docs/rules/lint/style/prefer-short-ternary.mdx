@@ -13,6 +13,10 @@ Not in any preset. In Rector's [`rector/php53`](/docs/rules/sets/rector/php53) s
 
 Use the Elvis operator `?:` where possible.
 
+### Why
+
+The rule runs PHP-CS-Fixer's `ternary_to_elvis_operator`, so its fixes match Pint. That fixer leaves a ternary as it is when it comes right after `return`, `echo`, `print` or `yield`, or when it is the first element of a short array: `return $a ? $a : 'x';` and `[$a ? $a : 'x', $b]` are not reported. Rector's `TernaryToElvisRector` rewrites those too, so a project that moves from Rector with `pun migrate` gets fewer fixes from this rule. Rector also drops the parentheses around the condition (`($a - $b) ? $a - $b : $c` becomes `$a - $b ?: $c`). This rule keeps them.
+
 ## Configuration
 
 ```toml title="pun.toml"
